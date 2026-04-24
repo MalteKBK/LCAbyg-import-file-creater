@@ -1,0 +1,9 @@
+# Pages definition for EPD to LCAbyg JSON exporter app
+
+[[pages]]
+name = "EPD → LCAbyg"
+slug = "epd-to-lcabyg"
+icon = "📄"
+description = "Upload an EPD PDF and export a LCAbyg JSON import package."
+path = "apps_dev/epd_to_lcabyg"
+dev = true
