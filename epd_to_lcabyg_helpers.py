@@ -5,6 +5,7 @@ import uuid
 import zipfile
 from datetime import datetime
 from typing import Any
+from pathlib import Path
 
 import pdfplumber
 
@@ -215,51 +216,112 @@ def parse_epd_pdf_bytes(pdf_bytes: bytes) -> dict[str, Any]:
     stage_values = parse_stage_table(lines)
     return {"metadata": metadata, "stage_values": stage_values, "lines_count": len(lines)}
 
+
+TEMPLATE_DIR = Path(__file__).resolve().parent / "template_lcabyg"
+
+def _load_template_files() -> dict[str, list[dict[str, Any]]]:
+    files: dict[str, list[dict[str, Any]]] = {}
+    for path in sorted(TEMPLATE_DIR.glob("*.json")):
+        with path.open("r", encoding="utf-8") as f:
+            files[path.name] = json.load(f)
+    return files
+
+def _set_localized_name(obj: dict[str, Any], text: str) -> None:
+    if "name" in obj:
+        current = obj.get("name")
+        if isinstance(current, dict):
+            for lang in list(current.keys()):
+                current[lang] = text
+        else:
+            obj["name"] = local_name(text)
+
+def _walk_nodes(files: dict[str, list[dict[str, Any]]], kind: str):
+    for filename, entries in files.items():
+        for entry in entries:
+            node_obj = entry.get("Node", {}) if isinstance(entry, dict) else {}
+            if kind in node_obj:
+                yield filename, node_obj[kind]
+
 def build_lcabyg_import_files(parsed: dict[str, Any], project_name: str = "EPD import project", amount: float = 1.0, lifespan: int = 50) -> dict[str, list[dict[str, Any]]]:
+    """Build import files by modifying the known-working LCAbyg 5.3.1 template.
+
+    This intentionally preserves all template UUIDs and reference edges. Earlier dynamic
+    generation created fresh UUIDs and occasionally missed reference nodes that LCAbyg
+    expects. The working test package imported successfully, so this function only swaps
+    the product/stage payload values inside that exact graph.
+    """
     md = parsed.get("metadata", {})
     stages = parsed.get("stage_values", {}) or {}
-    # LCAbyg 5.3 import template only supports product stages like A1to3 in this context.
-    # C2, C4 and D can trigger UnsupportedStage during import, so keep them out of Stage.json.
-    stages = {"A1to3": stages["A1to3"]} if "A1to3" in stages else {}
+    a1to3 = stages.get("A1to3", {})
+
     product_name = md.get("product_name") or md.get("epd_id") or "Imported EPD product"
     producer = md.get("producer") or ""
     epd_id = md.get("epd_id") or ""
     unit = unit_from_declared_unit(md.get("declared_unit"))
     mass_factor = mass_factor_from_density(md.get("density")) if unit == "M3" else 1.0
 
-    ids = {k: str(uuid.uuid4()) for k in ["project", "building", "root", "model", "element", "construction", "product", "operation", "dgnb", "transport_root", "process", "installation", "fuel"]}
-    files: dict[str, list[dict[str, Any]]] = {}
-    files["Project.json"] = [
-        node("Project", {"id": ids["project"], "name": {"Danish": project_name}, "address": "", "owner": "", "lca_advisor": "", "building_regulation_version": "BR2023"}),
-        edge("MainBuilding", str(uuid.uuid4()), ids["project"], ids["building"]),
-    ]
-    files["Building.json"] = [
-        node("Building", {"id": ids["building"], "scenario_name": "Original bygningsmodel", "locked": "Unlocked", "description": comment(), "building_type": "Office", "heated_floor_area": 1.0, "gross_area": 1.0, "integrated_garage": 0.0, "external_area": 0.0, "gross_area_above_ground": 0.0, "person_count": 0, "storeys_above_ground": 0, "storeys_below_ground": 0, "storey_height": 0.0, "initial_year": datetime.now().year, "calculation_timespan": lifespan, "calculation_mode": "BR23", "outside_area": 0.0, "plot_area": 0.0, "energy_class": "LowEnergy"}),
-        edge("BuildingToRoot", str(uuid.uuid4()), ids["building"], ids["root"]),
-        edge("BuildingToOperation", str(uuid.uuid4()), ids["building"], ids["operation"]),
-        edge("BuildingToDGNBOperation", str(uuid.uuid4()), ids["building"], ids["dgnb"]),
-    ]
-    files["EmbodiedRoot.json"] = [node("EmbodiedRoot", {"id": ids["root"]}), edge("RootToModel", str(uuid.uuid4()), ids["root"], ids["model"]), edge("RootToConstructionProcess", str(uuid.uuid4()), ids["root"], ids["process"])]
-    files["ElementModel.json"] = [node("ElementModel", {"id": ids["model"]}), edge("ParentTo", str(uuid.uuid4()), ids["model"], ids["element"])]
-    files["Element.json"] = [node("Element", {"id": ids["element"], "name": local_name("Imported EPD element"), "source": "User", "comment": comment(), "enabled": True, "excluded_scenarios": []}), edge("ElementToConstruction", {"id": str(uuid.uuid4()), "amount": amount, "enabled": True, "special_conditions": False, "excluded_scenarios": []}, ids["element"], ids["construction"])]
-    files["Construction.json"] = [node("Construction", {"id": ids["construction"], "name": local_name(product_name), "unit": unit, "source": "User", "comment": comment(f"EPD id: {epd_id}; declared unit: {md.get('declared_unit') or ''}"), "locked": False}), edge("ConstructionToProduct", {"id": str(uuid.uuid4()), "amount": amount, "unit": unit, "lifespan": lifespan, "demolition": False, "delayed_start": 0, "enabled": True, "excluded_scenarios": []}, ids["construction"], ids["product"])]
-    product_entries = [node("Product", {"id": ids["product"], "name": local_name(product_name), "source": "User", "comment": comment(f"Generated from EPD PDF. Producer: {producer}; EPD id: {epd_id}"), "uncertainty_factor": 1.0})]
-    stage_entries = []
-    for stage_code, vals in stages.items():
-        sid = str(uuid.uuid4())
-        product_entries.append(edge("ProductToStage", {"id": str(uuid.uuid4()), "excluded_scenarios": [], "enabled": True}, ids["product"], sid))
-        stage_entries.append(node("Stage", {"id": sid, "name": local_name(f"{product_name} - {stage_code}"), "comment": comment(f"Extracted automatically from PDF. Check values before use. Declared unit: {md.get('declared_unit') or ''}"), "source": "User", "valid_to": md.get("valid_to") or "", "stage": stage_code, "stage_unit": unit, "indicator_unit": unit, "stage_factor": 1.0, "mass_factor": mass_factor, "indicator_factor": 1.0, "scale_factor": 1.0, "external_source": producer, "external_id": epd_id, "external_version": "", "external_url": "", "compliance": "A1", "data_type": "Specific", "indicators": complete_indicators(vals)}))
-    if not stage_entries:
-        sid = str(uuid.uuid4())
-        product_entries.append(edge("ProductToStage", {"id": str(uuid.uuid4()), "excluded_scenarios": [], "enabled": True}, ids["product"], sid))
-        stage_entries.append(node("Stage", {"id": sid, "name": local_name(f"{product_name} - A1to3"), "comment": comment("No indicators were extracted; placeholder only."), "source": "User", "valid_to": md.get("valid_to") or "", "stage": "A1to3", "stage_unit": unit, "indicator_unit": unit, "stage_factor": 1.0, "mass_factor": mass_factor, "indicator_factor": 1.0, "scale_factor": 1.0, "external_source": producer, "external_id": epd_id, "external_version": "", "external_url": "", "compliance": "A1", "data_type": "Specific", "indicators": complete_indicators({})}))
-    files["Product.json"] = product_entries
-    files["Stage.json"] = stage_entries
-    files["Operation.json"] = [node("Operation", {"id": ids["operation"], "electricity_usage": 0.0, "heat_usage": 0.0, "electricity_production": 0.0})]
-    files["DGNBOperationReference.json"] = [node("DGNBOperationReference", {"id": ids["dgnb"], "heat_supplement": 0.0, "electricity_supplement": 0.0})]
-    files["ConstructionProcess.json"] = [node("ConstructionProcess", {"id": ids["process"]}), edge("ProcessToInstallation", str(uuid.uuid4()), ids["process"], ids["installation"])]
-    files["ConstructionInstallation.json"] = [node("ConstructionInstallation", {"id": ids["installation"]}), edge("FuelUsage", str(uuid.uuid4()), ids["installation"], ids["fuel"])]
-    files["FuelConsumption.json"] = [node("FuelConsumption", {"id": ids["fuel"]})]
+    files = _load_template_files()
+
+    # Project metadata
+    for _, project in _walk_nodes(files, "Project"):
+        project["name"] = {"Danish": project_name}
+        project["building_regulation_version"] = "BR2023"
+
+    # Keep building as a harmless minimal project, but update timespan.
+    for _, building in _walk_nodes(files, "Building"):
+        building["calculation_timespan"] = lifespan
+        building["initial_year"] = datetime.now().year
+
+    # Product, construction and element naming.
+    for _, product in _walk_nodes(files, "Product"):
+        _set_localized_name(product, product_name)
+        product["source"] = "User"
+        product["comment"] = comment(f"Generated from EPD PDF. Producer: {producer}; EPD id: {epd_id}")
+        product["uncertainty_factor"] = 1.0
+
+    for _, construction in _walk_nodes(files, "Construction"):
+        _set_localized_name(construction, product_name)
+        construction["unit"] = unit
+        construction["source"] = "User"
+        construction["comment"] = comment(f"EPD id: {epd_id}; declared unit: {md.get('declared_unit') or ''}")
+        construction["locked"] = False
+
+    for _, element in _walk_nodes(files, "Element"):
+        _set_localized_name(element, "Imported EPD element")
+        element["source"] = "User"
+
+    # Update construction/product edge amount and unit without changing IDs or endpoints.
+    for entry in files.get("Construction.json", []):
+        edge_obj = entry.get("Edge") if isinstance(entry, dict) else None
+        if edge_obj and isinstance(edge_obj[0], dict) and "ConstructionToProduct" in edge_obj[0]:
+            payload = edge_obj[0]["ConstructionToProduct"]
+            if isinstance(payload, dict):
+                payload["amount"] = amount
+                payload["unit"] = unit
+                payload["lifespan"] = lifespan
+                payload["enabled"] = True
+
+    # Update exactly the one working stage from the template. Do not add C2/C4/D.
+    for _, stage in _walk_nodes(files, "Stage"):
+        _set_localized_name(stage, f"{product_name} - A1to3")
+        stage["comment"] = comment("Extracted automatically from EPD PDF. Check values before use.")
+        stage["source"] = "User"
+        stage["valid_to"] = md.get("valid_to") or ""
+        stage["stage"] = "A1to3"
+        stage["stage_unit"] = unit
+        stage["indicator_unit"] = unit
+        stage["stage_factor"] = 1.0
+        stage["mass_factor"] = mass_factor
+        stage["indicator_factor"] = 1.0
+        stage["scale_factor"] = 1.0
+        stage["external_source"] = producer
+        stage["external_id"] = epd_id
+        stage["external_version"] = ""
+        stage["external_url"] = ""
+        stage["compliance"] = "A1"
+        stage["data_type"] = "Specific"
+        stage["indicators"] = complete_indicators(a1to3)
+
     return files
 
 def build_import_zip_bytes(files: dict[str, list[dict[str, Any]]]) -> bytes:
