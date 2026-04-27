@@ -11,7 +11,7 @@ STAGE_TOKEN_RE = re.compile(r"\b(A1-A3|A4|C1|C2|C3|C4|D)\b")
 INDICATOR_KEYWORDS = {
     "gwp-fossil": "GWP",
     "gwp": "GWP",
-    "odP": "ODP",
+    "odp": "ODP",
     "ap": "AP",
     "ep": "EP",
     "pocp": "POCP",
