@@ -1,6 +1,5 @@
 """EPD PDF -> LCAbyg 5.3.1 project import folder/zip."""
 
-from pathlib import Path
 import json
 import streamlit as st
 
@@ -14,8 +13,8 @@ st.set_page_config(page_title="EPD → LCAbyg import", layout="wide")
 st.title("EPD → LCAbyg project import")
 
 st.markdown(
-    "Upload en EPD-PDF. Appen udtrækker metadata og miljøindikatorer og laver en ZIP med "
-    "flere JSON-filer efter LCAbyg project import-strukturen. Importér den udpakkede mappe i LCAbyg."
+    "Upload en EPD-PDF. Appen udtrækker metadata og A1-A3-miljøindikatorer og laver en ZIP med "
+    "JSON-filer efter den LCAbyg project import-struktur, som vi har testet virker."
 )
 
 uploaded_pdf = st.file_uploader("Upload EPD PDF", type=["pdf"])
@@ -29,12 +28,12 @@ with st.sidebar:
 if uploaded_pdf is not None:
     pdf_bytes = uploaded_pdf.read()
     with st.spinner("Parser PDF og bygger LCAbyg importpakke..."):
-        parsed = parse_epd_pdf_bytes(pdf_bytes)
-        files = build_lcabyg_import_files(parsed, project_name=project_name, amount=amount, lifespan=int(lifespan))
-        zip_bytes = build_import_zip_bytes(files)
+        parsed = parse_epd_pdf_bytes(pdf_bytes, filename_hint=uploaded_pdf.name)
 
     metadata = parsed["metadata"]
-    stage_values = parsed["stage_values"]
+    variants = parsed.get("variants", {}) or {}
+    variant_names = list(variants.keys()) or ["Default"]
+    default_variant = parsed.get("selected_variant") if parsed.get("selected_variant") in variant_names else variant_names[0]
 
     st.subheader("Udtrukket metadata")
     col1, col2 = st.columns(2)
@@ -46,14 +45,42 @@ if uploaded_pdf is not None:
     with col2:
         st.markdown(f"**Issued:** {metadata.get('issue_date') or '—'}")
         st.markdown(f"**Valid to:** {metadata.get('valid_to') or '—'}")
-        st.markdown(f"**Density:** {metadata.get('density') or '—'}")
+        st.markdown(f"**Density/masse:** {metadata.get('density') or '—'}")
         st.markdown(f"**Linjer læst:** {parsed.get('lines_count')}")
 
-    st.subheader("Faser og indikatorer")
-    if stage_values:
-        st.json(stage_values)
+    st.subheader("Vælg produktvariant")
+    selected_variant = st.selectbox(
+        "Produktvariant fundet i EPD-tabellen",
+        variant_names,
+        index=variant_names.index(default_variant),
+        help="Vælg den produktkolonne, som svarer til det produkt du vil importere. Fx AAC 535 for H+H Multiplade 535.",
+    )
+
+    selected_values = variants.get(selected_variant, {})
+    a1to3 = selected_values.get("A1to3", {})
+
+    st.subheader("A1-A3-indikatorer der importeres")
+    if a1to3:
+        st.json(a1to3)
+        if "GWP" in a1to3:
+            st.success(f"GWP-total A1-A3: {a1to3['GWP']:g}")
     else:
-        st.warning("Ingen indikatorer fundet. ZIP'en indeholder kun en placeholder-stage.")
+        st.warning("Ingen A1-A3-indikatorer fundet for den valgte variant. ZIP'en indeholder derfor placeholder-værdier.")
+
+    with st.expander("Alle fundne varianter/faser"):
+        st.json(variants)
+
+    with st.expander("Parser-diagnostik"):
+        st.dataframe(parsed.get("diagnostics", []), use_container_width=True)
+
+    files = build_lcabyg_import_files(
+        parsed,
+        project_name=project_name,
+        amount=amount,
+        lifespan=int(lifespan),
+        variant=selected_variant,
+    )
+    zip_bytes = build_import_zip_bytes(files)
 
     st.subheader("LCAbyg importpakke")
     st.info(
@@ -70,9 +97,6 @@ if uploaded_pdf is not None:
         file_name=f"lcabyg_import_{safe_id}.zip",
         mime="application/zip",
     )
-
-    with st.expander("Vis filerne i ZIP'en"):
-        st.write(sorted(files.keys()))
 
     with st.expander("Preview Stage.json"):
         st.code(json.dumps(files.get("Stage.json", []), indent=2, ensure_ascii=False), language="json")
