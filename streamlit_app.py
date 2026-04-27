@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 import streamlit as st
 
-from epd_to_lcabyg_helpers import (
+from epd_to_lcabyg_helpers_v7 import (
     build_import_zip_bytes,
     build_lcabyg_import_files,
     parse_epd_pdf_bytes,
