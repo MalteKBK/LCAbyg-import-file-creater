@@ -1,0 +1,42 @@
+[
+  {
+    "Node": {
+      "Construction": {
+        "id": "7cec94c1-bbc7-4609-aca5-41fa9474a311",
+        "name": {
+          "English": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm",
+          "German": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm",
+          "Norwegian": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm",
+          "Danish": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm"
+        },
+        "unit": "KG",
+        "source": "User",
+        "comment": {
+          "German": "",
+          "Danish": "",
+          "Norwegian": "",
+          "English": ""
+        },
+        "locked": false
+      }
+    }
+  },
+  {
+    "Edge": [
+      {
+        "ConstructionToProduct": {
+          "id": "5d2c7e8f-51a7-48d1-b75e-55d5b72ee140",
+          "amount": 1,
+          "unit": "KG",
+          "lifespan": 80,
+          "demolition": false,
+          "delayed_start": 0,
+          "enabled": true,
+          "excluded_scenarios": []
+        }
+      },
+      "7cec94c1-bbc7-4609-aca5-41fa9474a311",
+      "ee60d276-eb44-41a9-a36d-6ded36315c47"
+    ]
+  }
+]

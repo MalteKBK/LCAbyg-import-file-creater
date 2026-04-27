@@ -1,0 +1,39 @@
+[
+  {
+    "Node": {
+      "Element": {
+        "id": "d57fbbc1-2f57-47bc-b7de-8f1b2ee4da87",
+        "name": {
+          "English": "Imported EPD element",
+          "German": "Imported EPD element",
+          "Norwegian": "Imported EPD element",
+          "Danish": "Imported EPD element"
+        },
+        "source": "User",
+        "comment": {
+          "German": "",
+          "Norwegian": "",
+          "Danish": "",
+          "English": ""
+        },
+        "enabled": true,
+        "excluded_scenarios": []
+      }
+    }
+  },
+  {
+    "Edge": [
+      {
+        "ElementToConstruction": {
+          "id": "c8e25c82-0de6-408a-a0c3-4411d42b996a",
+          "amount": 1,
+          "enabled": true,
+          "special_conditions": false,
+          "excluded_scenarios": []
+        }
+      },
+      "d57fbbc1-2f57-47bc-b7de-8f1b2ee4da87",
+      "7cec94c1-bbc7-4609-aca5-41fa9474a311"
+    ]
+  }
+]

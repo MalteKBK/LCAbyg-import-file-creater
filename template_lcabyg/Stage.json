@@ -1,0 +1,49 @@
+[
+  {
+    "Node": {
+      "Stage": {
+        "id": "d61fc8da-1a0d-4baa-a0fa-194c1f8a5218",
+        "name": {
+          "English": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm - A1to3",
+          "German": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm - A1to3",
+          "Norwegian": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm - A1to3",
+          "Danish": "Spaandex particle boards, type P1 8-40 mm, P2 8-40 mm, P4 25 mm and P6 22 mm - A1to3"
+        },
+        "comment": {
+          "English": "Extracted automatically from EPD PDF. Check values before use.",
+          "German": "",
+          "Norwegian": "",
+          "Danish": "Extracted automatically from EPD PDF. Check values before use."
+        },
+        "source": "User",
+        "valid_to": "2026-06-21",
+        "stage": "A1to3",
+        "stage_unit": "KG",
+        "indicator_unit": "KG",
+        "stage_factor": 1,
+        "mass_factor": 1,
+        "indicator_factor": 1,
+        "scale_factor": 1,
+        "external_source": "",
+        "external_id": "MD-21022-EN",
+        "external_version": "",
+        "external_url": "",
+        "compliance": "A1",
+        "data_type": "Specific",
+        "indicators": {
+          "SER": 0,
+          "EP": 0.0000391,
+          "ODP": 2.25E-16,
+          "POCP": 0.0000147,
+          "PER": 0,
+          "ADPE": 3.26E-9,
+          "AP": 0.000202,
+          "GWP": 1.66,
+          "ADPF": 0.349,
+          "PENR": 0,
+          "SENR": 0
+        }
+      }
+    }
+  }
+]

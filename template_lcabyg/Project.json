@@ -1,0 +1,25 @@
+[
+  {
+    "Node": {
+      "Project": {
+        "id": "2f95c41e-0cc4-4b6e-90ac-ffa796aecd6d",
+        "name": {
+          "Danish": "EPD import project"
+        },
+        "address": "Testvej 1, 1111 Testbyen",
+        "owner": "Test",
+        "lca_advisor": "Test",
+        "building_regulation_version": "BR2023"
+      }
+    }
+  },
+  {
+    "Edge": [
+      {
+        "MainBuilding": "bd294743-9c10-47c8-bce2-6b0593cb6852"
+      },
+      "2f95c41e-0cc4-4b6e-90ac-ffa796aecd6d",
+      "7791681b-40a2-401d-ac38-a2f73d736ab4"
+    ]
+  }
+]
