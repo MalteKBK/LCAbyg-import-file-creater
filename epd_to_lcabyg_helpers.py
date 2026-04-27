@@ -218,6 +218,9 @@ def parse_epd_pdf_bytes(pdf_bytes: bytes) -> dict[str, Any]:
 def build_lcabyg_import_files(parsed: dict[str, Any], project_name: str = "EPD import project", amount: float = 1.0, lifespan: int = 50) -> dict[str, list[dict[str, Any]]]:
     md = parsed.get("metadata", {})
     stages = parsed.get("stage_values", {}) or {}
+    # LCAbyg 5.3 import template only supports product stages like A1to3 in this context.
+    # C2, C4 and D can trigger UnsupportedStage during import, so keep them out of Stage.json.
+    stages = {"A1to3": stages["A1to3"]} if "A1to3" in stages else {}
     product_name = md.get("product_name") or md.get("epd_id") or "Imported EPD product"
     producer = md.get("producer") or ""
     epd_id = md.get("epd_id") or ""
@@ -225,9 +228,6 @@ def build_lcabyg_import_files(parsed: dict[str, Any], project_name: str = "EPD i
     mass_factor = mass_factor_from_density(md.get("density")) if unit == "M3" else 1.0
 
     ids = {k: str(uuid.uuid4()) for k in ["project", "building", "root", "model", "element", "construction", "product", "operation", "dgnb", "transport_root", "process", "installation", "fuel"]}
-    category_id = "59ab59a5-2482-45ae-85f1-d0e39e640712"  # same generic category as official guide example
-    stage_category_id = "d8143098-5ed7-42db-8bea-996b0cb3d271"
-
     files: dict[str, list[dict[str, Any]]] = {}
     files["Project.json"] = [
         node("Project", {"id": ids["project"], "name": {"Danish": project_name}, "address": "", "owner": "", "lca_advisor": "", "building_regulation_version": "BR2023"}),
@@ -245,26 +245,19 @@ def build_lcabyg_import_files(parsed: dict[str, Any], project_name: str = "EPD i
     files["Construction.json"] = [node("Construction", {"id": ids["construction"], "name": local_name(product_name), "unit": unit, "source": "User", "comment": comment(f"EPD id: {epd_id}; declared unit: {md.get('declared_unit') or ''}"), "locked": False}), edge("ConstructionToProduct", {"id": str(uuid.uuid4()), "amount": amount, "unit": unit, "lifespan": lifespan, "demolition": False, "delayed_start": 0, "enabled": True, "excluded_scenarios": []}, ids["construction"], ids["product"])]
     product_entries = [node("Product", {"id": ids["product"], "name": local_name(product_name), "source": "User", "comment": comment(f"Generated from EPD PDF. Producer: {producer}; EPD id: {epd_id}"), "uncertainty_factor": 1.0})]
     stage_entries = []
-    cat_stage_entries = []
     for stage_code, vals in stages.items():
         sid = str(uuid.uuid4())
         product_entries.append(edge("ProductToStage", {"id": str(uuid.uuid4()), "excluded_scenarios": [], "enabled": True}, ids["product"], sid))
         stage_entries.append(node("Stage", {"id": sid, "name": local_name(f"{product_name} - {stage_code}"), "comment": comment(f"Extracted automatically from PDF. Check values before use. Declared unit: {md.get('declared_unit') or ''}"), "source": "User", "valid_to": md.get("valid_to") or "", "stage": stage_code, "stage_unit": unit, "indicator_unit": unit, "stage_factor": 1.0, "mass_factor": mass_factor, "indicator_factor": 1.0, "scale_factor": 1.0, "external_source": producer, "external_id": epd_id, "external_version": "", "external_url": "", "compliance": "A1", "data_type": "Specific", "indicators": complete_indicators(vals)}))
-        cat_stage_entries.append(edge("CategoryToStage", str(uuid.uuid4()), stage_category_id, sid))
     if not stage_entries:
         sid = str(uuid.uuid4())
         product_entries.append(edge("ProductToStage", {"id": str(uuid.uuid4()), "excluded_scenarios": [], "enabled": True}, ids["product"], sid))
         stage_entries.append(node("Stage", {"id": sid, "name": local_name(f"{product_name} - A1to3"), "comment": comment("No indicators were extracted; placeholder only."), "source": "User", "valid_to": md.get("valid_to") or "", "stage": "A1to3", "stage_unit": unit, "indicator_unit": unit, "stage_factor": 1.0, "mass_factor": mass_factor, "indicator_factor": 1.0, "scale_factor": 1.0, "external_source": producer, "external_id": epd_id, "external_version": "", "external_url": "", "compliance": "A1", "data_type": "Specific", "indicators": complete_indicators({})}))
-        cat_stage_entries.append(edge("CategoryToStage", str(uuid.uuid4()), stage_category_id, sid))
     files["Product.json"] = product_entries
     files["Stage.json"] = stage_entries
-    files["CategoryToStage.json"] = cat_stage_entries
-    files["CategoryToElement.json"] = [edge("CategoryToElement", {"id": str(uuid.uuid4())}, category_id, ids["element"])]
-    files["CategoryToConstruction.json"] = [edge("CategoryToConstruction", {"id": str(uuid.uuid4()), "layers": [1]}, category_id, ids["construction"])]
     files["Operation.json"] = [node("Operation", {"id": ids["operation"], "electricity_usage": 0.0, "heat_usage": 0.0, "electricity_production": 0.0})]
     files["DGNBOperationReference.json"] = [node("DGNBOperationReference", {"id": ids["dgnb"], "heat_supplement": 0.0, "electricity_supplement": 0.0})]
-    files["ProductTransportRoot.json"] = [node("ProductTransportRoot", {"id": ids["transport_root"]})]
-    files["ConstructionProcess.json"] = [node("ConstructionProcess", {"id": ids["process"]}), edge("ProcessToInstallation", str(uuid.uuid4()), ids["process"], ids["installation"]), edge("ProcessToTransport", str(uuid.uuid4()), ids["process"], ids["transport_root"])]
+    files["ConstructionProcess.json"] = [node("ConstructionProcess", {"id": ids["process"]}), edge("ProcessToInstallation", str(uuid.uuid4()), ids["process"], ids["installation"])]
     files["ConstructionInstallation.json"] = [node("ConstructionInstallation", {"id": ids["installation"]}), edge("FuelUsage", str(uuid.uuid4()), ids["installation"], ids["fuel"])]
     files["FuelConsumption.json"] = [node("FuelConsumption", {"id": ids["fuel"]})]
     return files
