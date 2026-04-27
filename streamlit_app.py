@@ -13,7 +13,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from epd_to_lcabyg_helpers_v2 import (
+from epd_to_lcabyg_helpers import (
     LCABYG_SAFE_INDICATORS,
     build_json_text,
     build_lcabyg_library_payload,
