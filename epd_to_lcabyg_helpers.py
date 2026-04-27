@@ -305,6 +305,7 @@ def parse_stage_table(lines: list[str]) -> dict[str, dict[str, float]]:
             continue
 
         numbers = NUMBER_RE.findall(line)
+        numbers = numbers[-len(stage_codes):]
         if not numbers:
             continue
         label = line_prefix_before_number(line)
