@@ -1,122 +1,78 @@
-"""
-EPD PDF -> LCAbyg JSON project/library exporter.
+"""EPD PDF -> LCAbyg 5.3.1 project import folder/zip."""
 
-This app extracts as much data as possible from a verified EPD PDF and exports a fuller
-LCAbyg-style JSON package. It creates either:
-1) a minimal import project: Building -> BuildingPart -> Construction -> Product -> Stages, or
-2) a product/stage library payload.
-"""
-
-import json
-import re
 from pathlib import Path
-
+import json
 import streamlit as st
 
 from epd_to_lcabyg_helpers import (
-    LCABYG_SAFE_INDICATORS,
-    build_json_text,
-    build_lcabyg_library_payload,
-    build_lcabyg_project_payload,
+    build_import_zip_bytes,
+    build_lcabyg_import_files,
     parse_epd_pdf_bytes,
 )
 
-st.set_page_config(page_title="EPD -> LCAbyg JSON", layout="wide")
-st.title("EPD -> LCAbyg JSON exporter")
+st.set_page_config(page_title="EPD → LCAbyg import", layout="wide")
+st.title("EPD → LCAbyg project import")
 
 st.markdown(
-    "Upload en verificeret EPD PDF. Appen forsøger at udtrække metadata og alle fundne miljøindikatorer "
-    "for alle livscyklusfaser, og bygger en LCAbyg JSON-pakke."
+    "Upload en EPD-PDF. Appen udtrækker metadata og miljøindikatorer og laver en ZIP med "
+    "flere JSON-filer efter LCAbyg project import-strukturen. Importér den udpakkede mappe i LCAbyg."
 )
-
-with st.sidebar:
-    st.header("Eksportindstillinger")
-    export_mode = st.radio(
-        "JSON-type",
-        options=["Minimal project", "Product/stage library"],
-        help="Minimal project laver Building -> BuildingPart -> Construction -> Product -> Stage. Library laver kun Product -> Stage.",
-    )
-    max_pages = st.number_input("Maks. PDF-sider der læses (0 = alle)", min_value=0, max_value=500, value=0, step=1)
-    include_extra = st.checkbox(
-        "Medtag ekstra indikatorer ud over konservativ LCAbyg-liste",
-        value=False,
-        help="Slå kun til hvis din LCAbyg-version accepterer nyere/ekstra EN15804+A2 indikatornavne.",
-    )
-    st.caption("Konservativ liste: " + ", ".join(sorted(LCABYG_SAFE_INDICATORS)))
 
 uploaded_pdf = st.file_uploader("Upload EPD PDF", type=["pdf"])
 
+with st.sidebar:
+    st.header("Projektindstillinger")
+    project_name = st.text_input("Projektnavn", "EPD import project")
+    amount = st.number_input("Mængde i konstruktion", min_value=0.0, value=1.0, step=0.1)
+    lifespan = st.number_input("Levetid", min_value=1, value=50, step=1)
+
 if uploaded_pdf is not None:
     pdf_bytes = uploaded_pdf.read()
-    with st.spinner("Parser PDF og udtrækker EPD-data..."):
-        parsed = parse_epd_pdf_bytes(pdf_bytes, max_pages=None if max_pages == 0 else int(max_pages))
+    with st.spinner("Parser PDF og bygger LCAbyg importpakke..."):
+        parsed = parse_epd_pdf_bytes(pdf_bytes)
+        files = build_lcabyg_import_files(parsed, project_name=project_name, amount=amount, lifespan=int(lifespan))
+        zip_bytes = build_import_zip_bytes(files)
 
     metadata = parsed["metadata"]
     stage_values = parsed["stage_values"]
 
-    product_name = metadata.get("product_name") or "EPD product"
-    producer = metadata.get("producer")
-    epd_id = metadata.get("epd_id")
-    valid_to = metadata.get("valid_to")
-    declared_unit = metadata.get("declared_unit")
-
-    st.subheader("Udtrukne metadata")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**Product name:** {product_name or '—'}")
-        st.markdown(f"**Producer:** {producer or '—'}")
-        st.markdown(f"**EPD id:** {epd_id or '—'}")
-        st.markdown(f"**Declared unit:** {declared_unit or '—'}")
-    with c2:
+    st.subheader("Udtrukket metadata")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Produktnavn:** {metadata.get('product_name') or '—'}")
+        st.markdown(f"**Producent:** {metadata.get('producer') or '—'}")
+        st.markdown(f"**EPD id:** {metadata.get('epd_id') or '—'}")
+        st.markdown(f"**Declared unit:** {metadata.get('declared_unit') or '—'}")
+    with col2:
         st.markdown(f"**Issued:** {metadata.get('issue_date') or '—'}")
-        st.markdown(f"**Valid to:** {valid_to or '—'}")
+        st.markdown(f"**Valid to:** {metadata.get('valid_to') or '—'}")
         st.markdown(f"**Density:** {metadata.get('density') or '—'}")
-        st.markdown(f"**Linjer læst:** {parsed['lines_count']}")
+        st.markdown(f"**Linjer læst:** {parsed.get('lines_count')}")
 
-    st.subheader("Fundne indikatorer pr. livscyklusfase")
-    if not stage_values:
-        st.error("Ingen stage-tabel blev fundet. Prøv at læse alle sider, eller tjek PDF-formatet.")
-        with st.expander("PDF tekst-preview til fejlfinding"):
-            st.code("\n".join(parsed.get("lines_preview", [])))
-        st.stop()
-
-    st.json(stage_values)
-
-    if export_mode == "Minimal project":
-        payload = build_lcabyg_project_payload(
-            product_name=product_name,
-            producer=producer,
-            epd_id=epd_id,
-            valid_to=valid_to,
-            declared_unit=declared_unit,
-            stage_values=stage_values,
-            include_extra_indicators=include_extra,
-        )
+    st.subheader("Faser og indikatorer")
+    if stage_values:
+        st.json(stage_values)
     else:
-        payload = build_lcabyg_library_payload(
-            product_name=product_name,
-            producer=producer,
-            epd_id=epd_id,
-            valid_to=valid_to,
-            declared_unit=declared_unit,
-            stage_values=stage_values,
-            include_extra_indicators=include_extra,
-        )
+        st.warning("Ingen indikatorer fundet. ZIP'en indeholder kun en placeholder-stage.")
 
-    json_text = build_json_text(payload)
-    filename_safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", epd_id or product_name or "epd")
-    suffix = "project" if export_mode == "Minimal project" else "library"
-    file_name = f"lcabyg_{filename_safe}_{suffix}.json"
-
-    st.download_button(
-        label=f"Download {export_mode} JSON",
-        data=json_text.encode("utf-8"),
-        file_name=file_name,
-        mime="application/json",
+    st.subheader("LCAbyg importpakke")
+    st.info(
+        "Download ZIP'en, pak den ud i en tom mappe, og vælg selve mappen i LCAbyg's JSON/projektimport. "
+        "Der må kun ligge de udpakkede JSON-filer i mappen."
     )
 
-    with st.expander("Preview generated JSON payload"):
-        st.code(json_text, language="json")
+    safe_id = metadata.get("epd_id") or metadata.get("product_name") or "epd_import"
+    safe_id = str(safe_id).replace(" ", "_").replace("/", "_")
 
-    with st.expander("PDF tekst-preview til fejlfinding"):
-        st.code("\n".join(parsed.get("lines_preview", [])))
+    st.download_button(
+        label="Download LCAbyg import ZIP",
+        data=zip_bytes,
+        file_name=f"lcabyg_import_{safe_id}.zip",
+        mime="application/zip",
+    )
+
+    with st.expander("Vis filerne i ZIP'en"):
+        st.write(sorted(files.keys()))
+
+    with st.expander("Preview Stage.json"):
+        st.code(json.dumps(files.get("Stage.json", []), indent=2, ensure_ascii=False), language="json")
