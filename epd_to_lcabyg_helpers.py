@@ -465,6 +465,51 @@ def complete_indicators(values: dict[str, float]) -> dict[str, float]:
     return {k: float(values.get(k, 0.0)) for k in ALL_INDICATORS}
 
 
+
+def add_indicator_dicts(*dicts: dict[str, float]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for d in dicts:
+        for k, v in (d or {}).items():
+            try:
+                out[k] = out.get(k, 0.0) + float(v)
+            except Exception:
+                pass
+    return out
+
+
+def lcabyg_supported_stage_values(stages: dict[str, dict[str, float]]) -> list[tuple[str, str, dict[str, float], str]]:
+    """Return only the EPD modules we want to import into LCAbyg.
+
+    Project decision: include A1-A3, C3, C4 and D only.
+    C1, C2, A4, A5 and all B modules are intentionally ignored, even if the
+    PDF parser finds values for them.
+    """
+    out: list[tuple[str, str, dict[str, float], str]] = []
+    if stages.get("A1to3"):
+        out.append(("A1to3", "A1-A3", stages["A1to3"], "A1-A3 extracted from EPD PDF."))
+    if stages.get("C3"):
+        out.append(("C3", "C3", stages["C3"], "C3 extracted from EPD PDF. C1 and C2 are intentionally excluded."))
+    if stages.get("C4"):
+        out.append(("C4", "C4", stages["C4"], "C4 extracted from EPD PDF."))
+    if stages.get("D"):
+        out.append(("D", "D", stages["D"], "D extracted from EPD PDF."))
+    return out
+
+
+def _edge_kind(entry: dict[str, Any]) -> str | None:
+    edge = entry.get("Edge") if isinstance(entry, dict) else None
+    if not edge or not isinstance(edge, list) or not edge or not isinstance(edge[0], dict):
+        return None
+    return next(iter(edge[0].keys()), None)
+
+
+def _find_single_node_id(files: dict[str, list[dict[str, Any]]], kind: str) -> str | None:
+    for _, node in _walk_nodes(files, kind):
+        node_id = node.get("id")
+        if node_id:
+            return node_id
+    return None
+
 def parse_epd_pdf_bytes(pdf_bytes: bytes, filename_hint: str | None = None) -> dict[str, Any]:
     lines = extract_lines_from_pdf(pdf_bytes)
     metadata = find_metadata(lines)
@@ -562,12 +607,41 @@ def build_lcabyg_import_files(parsed: dict[str, Any], project_name: str = "EPD i
                 payload["lifespan"] = lifespan
                 payload["enabled"] = True
 
-    for _, stage in _walk_nodes(files, "Stage"):
-        _set_localized_name(stage, f"{product_name} - A1-A3")
-        stage["comment"] = comment("A1-A3 extracted automatically from EPD PDF. Check values before use.")
+    # Rebuild Stage.json and corresponding ProductToStage / CategoryToStage edges from the
+    # locked working template. We intentionally export only A1-A3, C3, C4 and D.
+    import copy
+    import uuid
+
+    stage_templates = [node for _, node in _walk_nodes(files, "Stage")]
+    if not stage_templates:
+        return files
+    base_stage_node = copy.deepcopy(stage_templates[0])
+
+    product_id = _find_single_node_id(files, "Product")
+    category_source_id = None
+    for entry in files.get("CategoryToStage.json", []):
+        edge = entry.get("Edge") if isinstance(entry, dict) else None
+        if edge and len(edge) >= 3:
+            category_source_id = edge[1]
+            break
+
+    # Remove old Stage nodes and old ProductToStage/CategoryToStage edges.
+    files["Stage.json"] = []
+    if "Product.json" in files:
+        files["Product.json"] = [e for e in files["Product.json"] if _edge_kind(e) != "ProductToStage"]
+    if "CategoryToStage.json" in files:
+        files["CategoryToStage.json"] = []
+
+    exported_stage_specs = lcabyg_supported_stage_values(stages)
+    for stage_code, display_stage, values, note in exported_stage_specs:
+        stage = copy.deepcopy(base_stage_node)
+        stage_id = str(uuid.uuid4())
+        stage["id"] = stage_id
+        _set_localized_name(stage, f"{product_name} - {display_stage}")
+        stage["comment"] = comment(note + " Check values before use.")
         stage["source"] = "User"
         stage["valid_to"] = md.get("valid_to") or ""
-        stage["stage"] = "A1to3"
+        stage["stage"] = stage_code
         stage["stage_unit"] = unit
         stage["indicator_unit"] = unit
         stage["stage_factor"] = 1.0
@@ -576,11 +650,29 @@ def build_lcabyg_import_files(parsed: dict[str, Any], project_name: str = "EPD i
         stage["scale_factor"] = 1.0
         stage["external_source"] = producer
         stage["external_id"] = epd_id
-        stage["external_version"] = variant_name or ""
+        stage["external_version"] = f"{variant_name or ''} {display_stage}".strip()
         stage["external_url"] = ""
         stage["compliance"] = "A1"
         stage["data_type"] = "Specific"
-        stage["indicators"] = complete_indicators(a1to3)
+        stage["indicators"] = complete_indicators(values)
+        files["Stage.json"].append({"Node": {"Stage": stage}})
+
+        if product_id:
+            files.setdefault("Product.json", []).append({
+                "Edge": [
+                    {"ProductToStage": {"id": str(uuid.uuid4()), "excluded_scenarios": [], "enabled": True}},
+                    product_id,
+                    stage_id,
+                ]
+            })
+        if category_source_id:
+            files.setdefault("CategoryToStage.json", []).append({
+                "Edge": [
+                    {"CategoryToStage": str(uuid.uuid4())},
+                    category_source_id,
+                    stage_id,
+                ]
+            })
 
     return files
 
